@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>Math Volley Ping Pong</title>
+   <script src="https://cdn.tailwindcss.com"></script>
+   <style>
+       body {
+           background-color: #1a202c; /* Tailwind gray-900 */
+           color: white;
+           font-family: 'Inter', sans-serif;
+           margin: 0;
+           overflow: hidden;
+           display: flex;
+           flex-direction: column;
+           align-items: center;
+           justify-content: center;
+           height: 100vh;
+           touch-action: none; /* Prevent scroll on touch */
+       }
+      
+       #game-container {
+           position: relative;
+           width: 100%;
+           max-width: 900px;
+           aspect-ratio: 16 / 9;
+           background: linear-gradient(to bottom, #4299e1, #ebf8ff);
+           border-radius: 12px;
+           box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+           overflow: hidden;
+       }
+
+
+       canvas {
+           display: block;
+           width: 100%;
+           height: 100%;
+       }
+
+
+       /* Modal styling */
+       .overlay {
+           position: absolute;
+           top: 0;
+           left: 0;
+           width: 100%;
+           height: 100%;
+           background: rgba(0, 0, 0, 0.6);
+           display: flex;
+           align-items: center;
+           justify-content: center;
+           z-index: 20;
+           backdrop-filter: blur(4px);
+       }
+
+
+       .hidden {
+           display: none !important;
+       }
+
+
+       .modal-card {
+           background: white;
+           color: #2d3748;
+           padding: 2rem;
+           border-radius: 1rem;
+           box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+           text-align: center;
+           max-width: 90%;
+           width: 400px;
+           transform: scale(0.95);
+           animation: popIn 0.3s forwards ease-out;
+       }
+
+
+       @keyframes popIn {
+           to { transform: scale(1); }
+       }
+
+
+       input[type=number]::-webkit-inner-spin-button,
+       input[type=number]::-webkit-outer-spin-button {
+           -webkit-appearance: none;
+           margin: 0;
+       }
+   </style>
+</head>
+<body>
+
+
+   <div class="mb-4 text-center">
+       <h1 class="text-3xl font-bold text-white mb-2 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-blue-500">Math Volley</h1>
+       <p class="text-gray-400 text-sm">P1: W/A/D to Move & Jump &nbsp; | &nbsp; P2: Arrows to Move & Jump</p>
+   </div>
+
+
+   <div id="game-container">
+       <canvas id="gameCanvas" width="900" height="506"></canvas>
+
+
+       <!-- Start Screen -->
+       <div id="start-screen" class="overlay">
+           <div class="modal-card">
+               <h2 class="text-3xl font-extrabold mb-4 text-blue-600">Math Volley</h2>
+               <p class="mb-4 text-gray-600">First to 5 points wins.<br>Score a point by landing the ball on the opponent's side AND answering a math question correctly!</p>
+               <button id="start-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-lg transition duration-200">
+                   Start Game
+               </button>
+           </div>
+       </div>
+
+
+       <!-- Math Quiz Modal -->
+       <div id="math-modal" class="overlay hidden">
+           <div class="modal-card border-t-8 border-yellow-400">
+               <h2 id="math-title" class="text-2xl font-bold mb-2">Player Scored!</h2>
+               <p class="text-gray-600 mb-4">Answer to secure your point:</p>
+              
+               <div class="bg-gray-100 rounded-lg p-4 mb-4">
+                   <p id="math-question" class="text-4xl font-mono font-bold text-blue-700">? x ?</p>
+               </div>
+              
+               <input type="number" id="math-answer" placeholder="Your Answer" class="w-full border-2 border-gray-300 rounded-lg p-3 text-2xl text-center font-bold mb-4 focus:outline-none focus:border-blue-500 transition-colors" autocomplete="off" />
+              
+               <button id="math-submit" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 px-6 rounded-lg transition duration-200">
+                   Submit Answer
+               </button>
+
+
+               <p id="math-feedback" class="mt-4 font-bold h-6"></p>
+           </div>
+       </div>
+
+
+       <!-- Game Over Modal -->
+       <div id="game-over-modal" class="overlay hidden">
+           <div class="modal-card border-t-8 border-green-500">
+               <h2 class="text-4xl font-extrabold mb-2 text-green-600">Game Over!</h2>
+               <p id="winner-text" class="text-2xl font-bold text-gray-700 mb-6">Player X Wins!</p>
+               <button id="restart-btn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition duration-200">
+                   Play Again
+               </button>
+           </div>
+       </div>
+   </div>
+
+
+   <script>
+       // Game Constants & Configuration
+       const canvas = document.getElementById('gameCanvas');
+       const ctx = canvas.getContext('2d');
+      
+       // Logical resolution mapping to CSS aspect ratio
+       const CW = 900;
+       const CH = 506;
+      
+       const GRAVITY = 0.5;
+       const GROUND_Y = CH - 40;
+       const WIN_SCORE = 5;
+
+
+       // Game State Management
+       let gameState = 'START'; // START, PLAYING, MATH, GAMEOVER
+       let currentScorer = null; // 1 or 2
+       let correctAnswer = 0;
+
+
+       // UI Elements
+       const startScreen = document.getElementById('start-screen');
+       const mathModal = document.getElementById('math-modal');
+       const gameOverModal = document.getElementById('game-over-modal');
+       const mathQuestionEl = document.getElementById('math-question');
+       const mathAnswerEl = document.getElementById('math-answer');
+       const mathFeedbackEl = document.getElementById('math-feedback');
+       const mathTitleEl = document.getElementById('math-title');
+       const winnerText = document.getElementById('winner-text');
+
+
+       // Input tracking
+       const keys = {};
+
+
+       // Entities
+       const p1 = {
+           x: 130, y: GROUND_Y - 40, w: 80, h: 40,
+           vx: 0, vy: 0, speed: 7, jumpPower: -12,
+           color: '#ef4444', // Red-500
+           score: 0, name: 'Player 1'
+       };
+
+
+       const p2 = {
+           x: CW - 130 - 80, y: GROUND_Y - 40, w: 80, h: 40,
+           vx: 0, vy: 0, speed: 7, jumpPower: -12,
+           color: '#3b82f6', // Blue-500
+           score: 0, name: 'Player 2'
+       };
+
+
+       const ball = {
+           x: CW / 2, y: 150, r: 18,
+           vx: 0, vy: 0, gravity: 0.35, maxSpeed: 16,
+           color: '#fbbf24' // Amber-400
+       };
+
+
+       const net = {
+           x: CW / 2 - 5, y: GROUND_Y - 140, w: 10, h: 140,
+           color: '#cbd5e1' // Slate-300
+       };
+
+
+       // Event Listeners
+       window.addEventListener('keydown', (e) => {
+           keys[e.code] = true;
+           // Prevent default scrolling for game keys
+           if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].indexOf(e.code) > -1) {
+               e.preventDefault();
+           }
+       });
+
+
+       window.addEventListener('keyup', (e) => {
+           keys[e.code] = false;
+       });
+
+
+       document.getElementById('start-btn').addEventListener('click', startGame);
+       document.getElementById('restart-btn').addEventListener('click', startGame);
+       document.getElementById('math-submit').addEventListener('click', checkMathAnswer);
+       mathAnswerEl.addEventListener('keydown', (e) => {
+           if (e.key === 'Enter') checkMathAnswer();
+       });
+
+
+       function startGame() {
+           p1.score = 0;
+           p2.score = 0;
+           resetPositions(1); // Serve side
+           gameState = 'PLAYING';
+           startScreen.classList.add('hidden');
+           gameOverModal.classList.add('hidden');
+           mathModal.classList.add('hidden');
+       }
+
+
+       function resetPositions(serveSide) {
+           p1.x = 150;
+           p1.y = GROUND_Y - p1.h;
+           p1.vx = 0;
+           p1.vy = 0;
+
+
+           p2.x = CW - 150 - p2.w;
+           p2.y = GROUND_Y - p2.h;
+           p2.vx = 0;
+           p2.vy = 0;
+
+
+           ball.vy = 0;
+           ball.vx = 0;
+           ball.y = 150;
+
+
+           if (serveSide === 1) {
+               ball.x = p1.x + p1.w / 2;
+           } else if (serveSide === 2) {
+               ball.x = p2.x + p2.w / 2;
+           } else {
+               ball.x = CW / 2;
+           }
+       }
+
+
+       function update() {
+           if (gameState !== 'PLAYING') return;
+
+
+           // --- Player 1 Controls (W A D) ---
+           if (keys['KeyA']) p1.vx = -p1.speed;
+           else if (keys['KeyD']) p1.vx = p1.speed;
+           else p1.vx = 0;
+
+
+           if (keys['KeyW'] && p1.y + p1.h >= GROUND_Y) {
+               p1.vy = p1.jumpPower;
+           }
+
+
+           // --- Player 2 Controls (Arrows) ---
+           if (keys['ArrowLeft']) p2.vx = -p2.speed;
+           else if (keys['ArrowRight']) p2.vx = p2.speed;
+           else p2.vx = 0;
+
+
+           if (keys['ArrowUp'] && p2.y + p2.h >= GROUND_Y) {
+               p2.vy = p2.jumpPower;
+           }
+
+
+           // --- Apply Physics ---
+           // Gravity
+           p1.vy += GRAVITY;
+           p2.vy += GRAVITY;
+           ball.vy += ball.gravity;
+
+
+           // Apply velocities
+           p1.x += p1.vx;
+           p1.y += p1.vy;
+           p2.x += p2.vx;
+           p2.y += p2.vy;
+           ball.x += ball.vx;
+           ball.y += ball.vy;
+
+
+           // --- Boundary Collisions (Players) ---
+           // Player 1 constraints (Left of net)
+           if (p1.x < 0) p1.x = 0;
+           if (p1.x + p1.w > net.x) p1.x = net.x - p1.w;
+           if (p1.y + p1.h > GROUND_Y) {
+               p1.y = GROUND_Y - p1.h;
+               p1.vy = 0;
+           }
+
+
+           // Player 2 constraints (Right of net)
+           if (p2.x < net.x + net.w) p2.x = net.x + net.w;
+           if (p2.x + p2.w > CW) p2.x = CW - p2.w;
+           if (p2.y + p2.h > GROUND_Y) {
+               p2.y = GROUND_Y - p2.h;
+               p2.vy = 0;
+           }
+
+
+           // --- Boundary Collisions (Ball) ---
+           // Walls
+           if (ball.x - ball.r < 0) {
+               ball.x = ball.r;
+               ball.vx *= -0.8;
+           } else if (ball.x + ball.r > CW) {
+               ball.x = CW - ball.r;
+               ball.vx *= -0.8;
+           }
+
+
+           // Ceiling
+           if (ball.y - ball.r < 0) {
+               ball.y = ball.r;
+               ball.vy *= -0.8;
+           }
+
+
+           // Net Collision (Ball)
+           if (ball.x + ball.r > net.x && ball.x - ball.r < net.x + net.w &&
+               ball.y + ball.r > net.y) {
+              
+               // Determine which side it hit or top
+               if (ball.y < net.y + 10) {
+                   // Hit top of net
+                   ball.y = net.y - ball.r;
+                   ball.vy *= -0.8;
+               } else {
+                   // Hit side of net
+                   if (ball.x < net.x) {
+                       ball.x = net.x - ball.r;
+                       ball.vx *= -0.8;
+                   } else {
+                       ball.x = net.x + net.w + ball.r;
+                       ball.vx *= -0.8;
+                   }
+               }
+           }
+
+
+           // --- Player - Ball Collisions ---
+           checkPlayerBallCollision(p1);
+           checkPlayerBallCollision(p2);
+
+
+           // Speed limits for ball
+           const currentSpeed = Math.sqrt(ball.vx**2 + ball.vy**2);
+           if (currentSpeed > ball.maxSpeed) {
+               ball.vx = (ball.vx / currentSpeed) * ball.maxSpeed;
+               ball.vy = (ball.vy / currentSpeed) * ball.maxSpeed;
+           }
+
+
+           // --- Ground Collision (Scoring) ---
+           if (ball.y + ball.r >= GROUND_Y) {
+               ball.y = GROUND_Y - ball.r;
+              
+               // Determine who scored based on which side it landed
+               if (ball.x < net.x) {
+                   // Landed on P1's side -> P2 scores
+                   triggerMathQuiz(2);
+               } else {
+                   // Landed on P2's side -> P1 scores
+                   triggerMathQuiz(1);
+               }
+           }
+       }
+
+
+       function checkPlayerBallCollision(p) {
+           // Treat player as a semi-circle for authentic slime collision
+           let cx = p.x + p.w / 2;
+           let cy = p.y + p.h; // Bottom center of the slime
+           let r = p.w / 2;
+
+
+           let distX = ball.x - cx;
+           let distY = ball.y - cy;
+           let distance = Math.sqrt((distX*distX) + (distY*distY));
+
+
+           // Only collide if ball is hitting the curved top and within radius
+           if (distance <= r + ball.r && ball.y <= cy + ball.r/2) {
+               // Avoid division by zero
+               if (distance === 0) { distX = 0; distY = -1; distance = 1; }
+              
+               let nx = distX / distance;
+               let ny = distY / distance;
+
+
+               // Push ball out of player
+               ball.x = cx + nx * (r + ball.r);
+               ball.y = cy + ny * (r + ball.r);
+
+
+               // Reflect velocity
+               let dot = (ball.vx * nx + ball.vy * ny);
+              
+               // Standard reflection
+               ball.vx = ball.vx - 2 * dot * nx;
+               ball.vy = ball.vy - 2 * dot * ny;
+
+
+               // Add upward kick and transfer some horizontal momentum
+               ball.vx += p.vx * 0.4;
+               ball.vy = Math.min(ball.vy, -8); // Always bounce up
+           }
+       }
+
+
+       function triggerMathQuiz(scorerNum) {
+           gameState = 'MATH';
+           currentScorer = scorerNum;
+           const scorerName = scorerNum === 1 ? p1.name : p2.name;
+           const scorerColor = scorerNum === 1 ? 'text-red-500' : 'text-blue-500';
+
+
+           // Generate question
+           const num1 = Math.floor(Math.random() * 12) + 1;
+           const num2 = Math.floor(Math.random() * 12) + 1;
+           correctAnswer = num1 * num2;
+
+
+           // Setup UI
+           mathTitleEl.innerHTML = `<span class="${scorerColor}">${scorerName}</span> wants a point!`;
+           mathQuestionEl.textContent = `${num1} x ${num2} = ?`;
+           mathAnswerEl.value = '';
+           mathFeedbackEl.textContent = '';
+          
+           // Show Modal and Focus
+           mathModal.classList.remove('hidden');
+           setTimeout(() => { mathAnswerEl.focus(); }, 100); // slight delay to ensure render
+       }
+
+
+       function checkMathAnswer() {
+           if (gameState !== 'MATH') return;
+
+
+           const userAnswer = parseInt(mathAnswerEl.value, 10);
+           const playerRef = currentScorer === 1 ? p1 : p2;
+
+
+           if (userAnswer === correctAnswer) {
+               playerRef.score++;
+               mathFeedbackEl.textContent = "Correct! +1 Point.";
+               mathFeedbackEl.className = "mt-4 font-bold h-6 text-green-500";
+           } else {
+               mathFeedbackEl.textContent = `Wrong! The answer was ${correctAnswer}. No points.`;
+               mathFeedbackEl.className = "mt-4 font-bold h-6 text-red-500";
+           }
+
+
+           // Wait a moment so they can read the feedback
+           setTimeout(() => {
+               mathModal.classList.add('hidden');
+              
+               // Check Win Condition
+               if (p1.score >= WIN_SCORE) {
+                   endGame(1);
+               } else if (p2.score >= WIN_SCORE) {
+                   endGame(2);
+               } else {
+                   // Resume Game
+                   // Ball goes to the person who lost the point (serve mechanics)
+                   resetPositions(currentScorer === 1 ? 2 : 1);
+                   gameState = 'PLAYING';
+               }
+           }, 2000);
+       }
+
+
+       function endGame(winnerNum) {
+           gameState = 'GAMEOVER';
+           const winnerName = winnerNum === 1 ? p1.name : p2.name;
+           const winnerColor = winnerNum === 1 ? 'text-red-500' : 'text-blue-500';
+          
+           winnerText.innerHTML = `<span class="${winnerColor}">${winnerName}</span> Wins the Game!`;
+           gameOverModal.classList.remove('hidden');
+       }
+
+
+       function draw() {
+           // Clear canvas & Draw Background
+           ctx.clearRect(0, 0, CW, CH);
+          
+           // Draw Scenery (Sky / Clouds)
+           ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+           ctx.beginPath();
+           ctx.arc(200, 100, 40, 0, Math.PI * 2);
+           ctx.arc(240, 100, 50, 0, Math.PI * 2);
+           ctx.arc(280, 100, 40, 0, Math.PI * 2);
+           ctx.fill();
+
+
+           // Draw Scores
+           ctx.font = "bold 48px Inter, sans-serif";
+           ctx.textAlign = "center";
+          
+           // P1 Score (Red)
+           ctx.fillStyle = "rgba(239, 68, 68, 0.7)";
+           ctx.fillText(p1.score, CW / 4, 100);
+          
+           // P2 Score (Blue)
+           ctx.fillStyle = "rgba(59, 130, 246, 0.7)";
+           ctx.fillText(p2.score, (CW / 4) * 3, 100);
+
+
+           // Draw Ground
+           ctx.fillStyle = '#22c55e'; // Green-500
+           ctx.fillRect(0, GROUND_Y, CW, CH - GROUND_Y);
+           // Ground Top Border
+           ctx.fillStyle = '#16a34a'; // Green-600
+           ctx.fillRect(0, GROUND_Y, CW, 10);
+
+
+           // Draw Net
+           ctx.fillStyle = net.color;
+           ctx.fillRect(net.x, net.y, net.w, net.h);
+           ctx.fillStyle = '#94a3b8'; // darker slate for texture
+           for (let i = net.y; i < GROUND_Y; i += 20) {
+               ctx.fillRect(net.x, i, net.w, 2);
+           }
+
+
+           // Draw Player 1 (Slime)
+           ctx.fillStyle = p1.color;
+           ctx.beginPath();
+           ctx.arc(p1.x + p1.w / 2, p1.y + p1.h, p1.w / 2, Math.PI, 0); // Semi-circle
+           ctx.fill();
+           // P1 Eyes
+           ctx.fillStyle = 'white';
+           ctx.beginPath(); ctx.arc(p1.x + p1.w / 2 + 15, p1.y + p1.h - 20, 8, 0, Math.PI*2); ctx.fill();
+           ctx.fillStyle = 'black';
+           ctx.beginPath(); ctx.arc(p1.x + p1.w / 2 + 18, p1.y + p1.h - 20, 4, 0, Math.PI*2); ctx.fill();
+
+
+           // Draw Player 2 (Slime)
+           ctx.fillStyle = p2.color;
+           ctx.beginPath();
+           ctx.arc(p2.x + p2.w / 2, p2.y + p2.h, p2.w / 2, Math.PI, 0); // Semi-circle
+           ctx.fill();
+           // P2 Eyes
+           ctx.fillStyle = 'white';
+           ctx.beginPath(); ctx.arc(p2.x + p2.w / 2 - 15, p2.y + p2.h - 20, 8, 0, Math.PI*2); ctx.fill();
+           ctx.fillStyle = 'black';
+           ctx.beginPath(); ctx.arc(p2.x + p2.w / 2 - 18, p2.y + p2.h - 20, 4, 0, Math.PI*2); ctx.fill();
+
+
+           // Draw Ball
+           ctx.fillStyle = ball.color;
+           ctx.beginPath();
+           ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+           ctx.fill();
+           // Ball inner shading
+           ctx.fillStyle = 'rgba(0,0,0,0.1)';
+           ctx.beginPath();
+           ctx.arc(ball.x - 3, ball.y - 3, ball.r - 2, 0, Math.PI * 2);
+           ctx.fill();
+       }
+
+
+       function loop() {
+           update();
+           draw();
+           requestAnimationFrame(loop);
+       }
+
+
+       // Initialize display
+       draw();
+       // Start loop
+       requestAnimationFrame(loop);
+
+
+   </script>
+</body>
+</html>
